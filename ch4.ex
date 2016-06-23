@@ -51,3 +51,22 @@ defmodule TodoList do
     %TodoList{todo_list | entries: HashDict.delete(entries, entry_id)}
   end
 end
+
+defmodule TodoList.CsvImporter do
+  def import(path) do
+    File.stream!(path)
+    |> Stream.map(&String.replace(&1, "\n", ""))
+    |> Stream.map(&parse/1)
+    |> Enum.reduce(TodoList.new, &merge/2)
+  end
+
+  defp parse(str) do
+    [date, title] = String.split(str, ",")
+    [year, month, day] = String.split(date, "/")
+    %{date: {year, month, day}, title: title}
+  end
+
+  defp merge(entry, todo_list) do
+    TodoList.add_entry(todo_list, entry)
+  end
+end
