@@ -1,35 +1,11 @@
 defmodule Todo.Database do
-  use GenServer
+  @pool_size 3
 
-  def start(dir), do: GenServer.start(__MODULE__, dir, name: name)
+  def start_link(dir), do: Todo.PoolSupervisor.start_link(dir, @pool_size)
 
-  def init(dir) do
-    File.mkdir_p(dir)
-    {:ok, pid0} = Todo.DatabaseWorker.start(dir)
-    {:ok, pid1} = Todo.DatabaseWorker.start(dir)
-    {:ok, pid2} = Todo.DatabaseWorker.start(dir)
-    {:ok, {{pid0, pid1, pid2}, dir}}
-  end
+  def store(key, val), do: Todo.DatabaseWorker.store(get_worker(key), key, val)
 
-  def store(key, val) do
-    worker = get_worker(:erlang.phash2(key, 3))
-    Todo.DatabaseWorker.store(worker, key, val)
-  end
-  def get(key) do
-    worker = get_worker(:erlang.phash2(key, 3))
-    Todo.DatabaseWorker.get(worker, key)
-  end
+  def get(key), do: Todo.DatabaseWorker.get(get_worker(key), key)
 
-  def handle_call({:get_worker, 0}, _caller, state = {{worker, _, _}, dir}) do
-    {:reply, worker, state}
-  end
-  def handle_call({:get_worker, 1}, _caller, state = {{_, worker, _}, dir}) do
-    {:reply, worker, state}
-  end
-  def handle_call({:get_worker, 2}, _caller, state = {{_, _, worker}, dir}) do
-    {:reply, worker, state}
-  end
-
-  defp name, do: :database_server
-  defp get_worker(n), do: GenServer.call(name, {:get_worker, n})
+  defp get_worker(key), do: :erlang.phash2(key, @pool_size) + 1
 end
