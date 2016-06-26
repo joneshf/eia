@@ -1,60 +1,44 @@
-defmodule ServerProcess do
-  def start(module) do
-    spawn(fn () ->
-      state = module.init
-      loop(module, state)
-    end)
-  end
-
-  def call(pid, request) do
-    send(pid, {:call, request, self})
-    receive do
-      {:response, response} ->
-        response
-    end
-  end
-
-  def cast(pid, request) do
-    send(pid, {:cast, request})
-    :ok
-  end
-
-  defp loop(module, state) do
-    receive do
-      {:call, request, caller} ->
-        {response, new_state} = module.handle_call(request, state)
-        send(caller, {:response, response})
-        loop(module, new_state)
-      {:cast, request} ->
-        new_state = module.handle_cast(request, state)
-        loop(module, new_state)
-    end
-  end
-end
-
 defmodule KeyValueStore do
-  def start, do: ServerProcess.start(KeyValueStore)
+  use GenServer
 
-  def put(pid, key, val), do: ServerProcess.cast(pid, {:put, key, val})
-  def get(pid, key), do: ServerProcess.call(pid, {:get, key})
+  def start, do: GenServer.start(KeyValueStore, nil)
 
-  def init do
-    HashDict.new
+  def put(pid, key, val), do: GenServer.cast(pid, {:put, key, val})
+  def get(pid, key), do: GenServer.call(pid, {:get, key})
+
+  def init(_state) do
+    :timer.send_interval(5000, :cleanup)
+    {:ok, HashDict.new}
   end
 
-  def handle_cast({:put, key, val}, dict), do: HashDict.put(dict, key, val)
-  def handle_call({:get, key}, dict), do: {HashDict.get(dict, key), dict}
+  def handle_call({:get, key}, _caller, dict) do
+    {:reply, HashDict.get(dict, key), dict}
+  end
+
+  def handle_cast({:put, key, val}, dict) do
+    {:noreply, HashDict.put(dict, key, val)}
+  end
+
+  def handle_info(:cleanup, state) do
+    {:noreply, state}
+  end
+
+  def handle_info(_, state) do
+    {:noreply, state}
+  end
 end
 
 defmodule TodoServer do
-  def init, do: TodoList.new
+  use GenServer
 
-  def start, do: ServerProcess.start(TodoServer)
+  def init(_state), do: {:ok, TodoList.new}
 
-  def add_entry(pid, entry), do: ServerProcess.cast(pid, {:add_entry, entry})
+  def start, do: GenServer.start(TodoServer, nil)
+
+  def add_entry(pid, entry), do: GenServer.cast(pid, {:add_entry, entry})
 
   def entries(pid, date) do
-    ServerProcess.cast(pid, {:entries, self, date})
+    GenServer.cast(pid, {:entries, self, date})
 
     receive do
       {:todo_entries, entries} -> entries
@@ -64,13 +48,13 @@ defmodule TodoServer do
   end
 
   def handle_cast({:add_entry, entry}, todo_list) do
-    TodoList.add_entry(todo_list, entry)
+    {:noreply, TodoList.add_entry(todo_list, entry)}
   end
   def handle_cast({:entries, caller, date}, todo_list) do
     send(caller, {:todo_entries, TodoList.entries(todo_list, date)})
-    todo_list
+    {:noreply, todo_list}
   end
-  def handle_cast(_, todo_list), do: todo_list
+  def handle_cast(_, todo_list), do: {:noreply, todo_list}
 end
 
 defmodule TodoList do
